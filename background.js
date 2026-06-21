@@ -1,4 +1,17 @@
 // Background service worker for Gemini Chat Saver
+importScripts("lib/dexie.min.js");
+
+// Initialize database
+let db = null;
+try {
+  db = new Dexie("GeminiChatSaverDB");
+  db.version(1).stores({
+    chats: "id, title, updatedAt"
+  });
+  console.log("Gemini Chat Saver database initialized in background.");
+} catch (e) {
+  console.error("Dexie initialization failed inside background script:", e);
+}
 
 // Handle click on extension icon (optional fallback if popup isn't set, but popup is set)
 chrome.runtime.onInstalled.addListener(() => {
@@ -10,6 +23,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "open_dashboard") {
     openDashboard(request.chatId);
     sendResponse({ status: "success" });
+  } else if (request.action === "save_chat") {
+    saveChatFromContent(request.chat, request.urlId, request.currentSessionId)
+      .then((result) => {
+        sendResponse({ status: "success", currentSessionId: result.currentSessionId });
+      })
+      .catch((err) => {
+        console.error("Failed to save chat in background:", err);
+        sendResponse({ status: "error", error: err.message });
+      });
+    return true; // Keep channel open
   } else if (request.action === "fetch_image") {
     fetchImageAsBase64(request.url)
       .then(base64Data => {
@@ -219,3 +242,140 @@ async function syncWithGoogleDrive(clientId, localChats) {
   
   return mergedChats; // Return merged list so local database can sync with it
 }
+
+// Handles saving a scraped chat record from a content script
+async function saveChatFromContent(chatRecord, urlId, currentSessionId) {
+  if (!db) {
+    throw new Error("Database not initialized");
+  }
+
+  let activeId = urlId;
+  let newSessionId = currentSessionId;
+  let isGlitchedUrl = false;
+
+  // 1. Check if the URL ID is glitched (meaning the DOM conversation is different from the saved one)
+  if (urlId && chatRecord.messages && chatRecord.messages.length > 0) {
+    try {
+      const existing = await db.chats.get(urlId);
+      if (existing && existing.messages && existing.messages.length > 0) {
+        const firstIncoming = chatRecord.messages[0];
+        const firstExisting = existing.messages[0];
+        if (firstIncoming && firstExisting) {
+          if (firstIncoming.role !== firstExisting.role || firstIncoming.text !== firstExisting.text) {
+            console.log(`Detected glitched URL ID: URL is ${urlId} but first message mismatch.`);
+            isGlitchedUrl = true;
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to check if URL is glitched: ", err);
+    }
+  }
+
+  // 2. Identify active session ID and handle migration if URL ID generated
+  if (!activeId || isGlitchedUrl) {
+    // If it's a glitched URL, we treat the current session as a new temp session
+    if (!currentSessionId || isGlitchedUrl || !currentSessionId.startsWith("temp_")) {
+      newSessionId = "temp_" + Date.now();
+    }
+    activeId = newSessionId;
+  } else {
+    // If we had a temporary ID, and now a real Gemini URL ID is generated, migrate it!
+    if (currentSessionId && currentSessionId.startsWith("temp_") && currentSessionId !== urlId) {
+      console.log(`Migrating temp session ${currentSessionId} to official ID ${urlId}`);
+      try {
+        const tempRecord = await db.chats.get(currentSessionId);
+        if (tempRecord) {
+          tempRecord.id = urlId;
+          tempRecord.updatedAt = Date.now();
+          await db.chats.put(tempRecord);
+          await db.chats.delete(currentSessionId);
+        }
+      } catch (err) {
+        console.error("Migration error: ", err);
+      }
+    }
+    newSessionId = urlId;
+    activeId = urlId;
+  }
+
+  // 2. Retrieve existing record to preserve timestamps and image buffers
+  let existingRecord = null;
+  try {
+    existingRecord = await db.chats.get(activeId);
+  } catch (err) {
+    console.error("Dexie get failed in background: ", err);
+  }
+
+  const messages = chatRecord.messages;
+
+  // Preserve timestamps if messages match
+  messages.forEach((msg, idx) => {
+    if (existingRecord && existingRecord.messages && existingRecord.messages[idx]) {
+      const extMsg = existingRecord.messages[idx];
+      if (extMsg.role === msg.role && extMsg.text === msg.text) {
+        msg.timestamp = extMsg.timestamp;
+        
+        // Preserve base64 image data if already fetched
+        if (extMsg.images && extMsg.images.length > 0) {
+          msg.images = extMsg.images.map((img, imgIdx) => {
+            // Keep the Base64 version if we have it and the incoming is still HTTP
+            if (img && img.startsWith('data:') && (!msg.images[imgIdx] || msg.images[imgIdx].startsWith('http'))) {
+              return img;
+            }
+            return msg.images[imgIdx] || img;
+          });
+        }
+      }
+    }
+  });
+
+  // 3. Update database record
+  const newRecord = {
+    id: activeId,
+    title: chatRecord.title,
+    messages: messages,
+    updatedAt: Date.now()
+  };
+
+  await db.chats.put(newRecord);
+  console.log(`Saved chat "${chatRecord.title}" with ${messages.length} messages. ID: ${activeId}`);
+
+  // 4. Trigger asynchronous background downloads to encode images to base64 format
+  triggerBackgroundPrefetchImages(activeId, messages);
+
+  return { currentSessionId: newSessionId };
+}
+
+// Prefetch HTTP images and convert them to Base64 to save directly in the DB
+function triggerBackgroundPrefetchImages(chatId, messages) {
+  messages.forEach((msg, msgIdx) => {
+    if (msg.images && msg.images.length > 0) {
+      msg.images.forEach((imgUrl, imgIdx) => {
+        if (imgUrl && imgUrl.startsWith("http")) {
+          fetchImageAsBase64(imgUrl)
+            .then(async (base64) => {
+              if (base64) {
+                console.log(`Image fetched in background. Saving to DB for chat ${chatId}, message ${msgIdx}, image ${imgIdx}`);
+                try {
+                  const chat = await db.chats.get(chatId);
+                  if (chat && chat.messages && chat.messages[msgIdx] && chat.messages[msgIdx].images) {
+                    chat.messages[msgIdx].images[imgIdx] = base64;
+                    chat.updatedAt = Date.now();
+                    await db.chats.put(chat);
+                    console.log(`Permanently saved base64 image in DB for chat ${chatId}`);
+                  }
+                } catch (err) {
+                  console.error("Failed to update base64 image in DB: ", err);
+                }
+              }
+            })
+            .catch(err => {
+              console.error(`Failed to fetch image ${imgUrl}:`, err);
+            });
+        }
+      });
+    }
+  });
+}
+

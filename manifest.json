@@ -23,7 +23,6 @@
         "https://gemini.google.com/*"
       ],
       "js": [
-        "lib/dexie.min.js",
         "content.js"
       ],
       "run_at": "document_idle"

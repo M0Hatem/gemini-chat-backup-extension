@@ -1,18 +1,6 @@
 // Content script for Google Gemini website
 // Integrates Dexie for database operations and watches chat elements
 
-// Initialize database
-let db = null;
-try {
-  db = new Dexie("GeminiChatSaverDB");
-  db.version(1).stores({
-    chats: "id, title, updatedAt"
-  });
-  console.log("Gemini Chat Saver database initialized successfully.");
-} catch (e) {
-  console.error("Dexie initialization failed inside content script:", e);
-}
-
 // Global state variables
 let currentSessionId = null; // Tracks current chat ID
 let scrapeTimeout = null;     // Debounce timer
@@ -172,8 +160,12 @@ function showInjectionNotification() {
 // Retrieve Gemini's current Chat ID from the URL
 function getChatIdFromUrl() {
   const path = window.location.pathname;
-  const match = path.match(/\/app\/([a-zA-Z0-9_-]+)/);
-  return match ? match[1] : null;
+  // Match "/app/chat/<id>" first, then fall back to "/app/<id>"
+  const match = path.match(/\/app\/chat\/([a-zA-Z0-9_-]+)/) || path.match(/\/app\/([a-zA-Z0-9_-]+)/);
+  if (match && match[1] && match[1] !== "chat") {
+    return match[1];
+  }
+  return null;
 }
 
 // Start observing changes on the DOM to capture chat log
@@ -193,50 +185,36 @@ function startObserver() {
   });
 }
 
-// Main logic: extracts conversations, saves text, proxies image downloads
+// Main logic: extracts conversations, sends data to background script
 async function scrapeAndSaveChat() {
-  if (!db) return;
-  
   const urlId = getChatIdFromUrl();
   
-  // 1. Identify active session ID
+  // 1. Scrape chat elements
+  const userElems = Array.from(document.querySelectorAll('query-text, .query-text, user-query .query-text'));
+  const modelElems = Array.from(document.querySelectorAll('message-content, .message-content, .model-response, model-response message-content'));
+  
+  // 2. Identify active session ID
   let activeId = urlId;
   if (!activeId) {
-    // If not in URL, check if there are any message elements visible
-    const messageExists = document.querySelector('query-text, .query-text, message-content, .message-content');
-    if (!messageExists) {
-      // Empty/new tab, do nothing
+    if (userElems.length === 0 && modelElems.length === 0) {
+      // Empty/new tab, reset session tracking and do nothing
+      currentSessionId = null;
       return;
     }
     
     // We have messages but no URL ID yet (temporary state before Google saves the chat)
-    if (!currentSessionId) {
+    if (!currentSessionId || !currentSessionId.startsWith("temp_")) {
       currentSessionId = "temp_" + Date.now();
     }
     activeId = currentSessionId;
   } else {
-    // If we were using a temporary ID, and now a real Gemini URL ID has generated, migrate it!
-    if (currentSessionId && currentSessionId.startsWith("temp_") && currentSessionId !== urlId) {
-      console.log(`Migrating temp session ${currentSessionId} to official ID ${urlId}`);
-      try {
-        const tempRecord = await db.chats.get(currentSessionId);
-        if (tempRecord) {
-          tempRecord.id = urlId;
-          tempRecord.updatedAt = Date.now();
-          await db.chats.put(tempRecord);
-          await db.chats.delete(currentSessionId);
-        }
-      } catch (err) {
-        console.error("Migration error: ", err);
+    // If we have an official URL ID, sync currentSessionId immediately if it changed (and doesn't start with temp_)
+    if (currentSessionId !== urlId) {
+      if (!currentSessionId || !currentSessionId.startsWith("temp_")) {
+        currentSessionId = urlId;
       }
     }
-    currentSessionId = urlId;
-    activeId = urlId;
   }
-  
-  // 2. Scrape chat elements
-  const userElems = Array.from(document.querySelectorAll('query-text, .query-text'));
-  const modelElems = Array.from(document.querySelectorAll('message-content, .message-content, .model-response'));
   
   if (userElems.length === 0 && modelElems.length === 0) {
     return; // No conversation items found
@@ -294,52 +272,30 @@ async function scrapeAndSaveChat() {
     }
   }
   
-  // 4. Retrieve existing record to preserve timestamps and image buffers
-  let existingRecord = null;
-  try {
-    existingRecord = await db.chats.get(activeId);
-  } catch (err) {
-    console.error("Dexie get failed: ", err);
-  }
-  
-  // Preserve timestamps if messages match
-  messages.forEach((msg, idx) => {
-    if (existingRecord && existingRecord.messages && existingRecord.messages[idx]) {
-      const extMsg = existingRecord.messages[idx];
-      if (extMsg.role === msg.role && extMsg.text === msg.text) {
-        msg.timestamp = extMsg.timestamp;
-        
-        // Preserve base64 image data if already fetched
-        if (extMsg.images && extMsg.images.length > 0) {
-          msg.images = extMsg.images.map((img, imgIdx) => {
-            // If the scraped image is still a HTTP URL but we have a Base64 cached version, keep the Base64 version!
-            if (img.startsWith('data:') && (!msg.images[imgIdx] || msg.images[imgIdx].startsWith('http'))) {
-              return img;
-            }
-            return msg.images[imgIdx] || img;
-          });
-        }
-      }
-    }
-  });
-  
-  // 5. Update database record
+  // 4. Send save message to background script
   const chatRecord = {
-    id: activeId,
     title: title,
-    messages: messages,
-    updatedAt: Date.now()
+    messages: messages
   };
   
-  try {
-    await db.chats.put(chatRecord);
-    console.log(`Saved chat "${title}" with ${messages.length} messages. ID: ${activeId}`);
-    
-    // 6. Asynchronously trigger Base64 conversion for images that are still HTTP links
-    triggerImageDownloads(activeId, messages);
-  } catch (err) {
-    console.error("Dexie write failed: ", err);
-  }
+  chrome.runtime.sendMessage({
+    action: "save_chat",
+    chat: chatRecord,
+    urlId: urlId,
+    currentSessionId: currentSessionId
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      console.error("Failed to send save_chat message:", chrome.runtime.lastError);
+      return;
+    }
+    if (response && response.status === "success") {
+      if (response.currentSessionId) {
+        currentSessionId = response.currentSessionId;
+      }
+    } else if (response && response.status === "error") {
+      console.error("Background failed to save chat:", response.error);
+    }
+  });
 }
 
 // Extracts image sources within a message container
@@ -363,47 +319,6 @@ function extractTurnImages(element) {
   return urls;
 }
 
-// Trigger asynchronous background downloads to encode images to base64 offline format
-function triggerImageDownloads(chatId, messages) {
-  let needsUpdate = false;
-  
-  messages.forEach((msg, msgIdx) => {
-    if (msg.images && msg.images.length > 0) {
-      msg.images.forEach((imgUrl, imgIdx) => {
-        // If image URL is a web address (not base64 yet)
-        if (imgUrl.startsWith("http")) {
-          // Ask background worker to fetch it
-          chrome.runtime.sendMessage({
-            action: "fetch_image",
-            url: imgUrl
-          }, (response) => {
-            if (response && response.base64) {
-              console.log(`Image converted to Base64! Updating chat database...`);
-              updateMessageImage(chatId, msgIdx, imgIdx, response.base64);
-            }
-          });
-        }
-      });
-    }
-  });
-}
-
-// Writes base64 data back to specific image index in database
-async function updateMessageImage(chatId, msgIdx, imgIdx, base64Data) {
-  if (!db) return;
-  try {
-    const chat = await db.chats.get(chatId);
-    if (chat && chat.messages && chat.messages[msgIdx] && chat.messages[msgIdx].images) {
-      chat.messages[msgIdx].images[imgIdx] = base64Data;
-      chat.updatedAt = Date.now();
-      await db.chats.put(chat);
-      console.log(`Permanently saved image ${imgIdx} in message ${msgIdx} for chat ${chatId}`);
-    }
-  } catch (err) {
-    console.error("Failed to update base64 image in database: ", err);
-  }
-}
-
 // Initialize Observer on window load
 if (document.readyState === "complete" || document.readyState === "interactive") {
   startObserver();
@@ -418,6 +333,11 @@ new MutationObserver(() => {
   if (currentUrl !== lastUrl) {
     lastUrl = currentUrl;
     console.log("SPA URL Change detected! Resetting session tracking.");
+    // Reset session tracking if we navigated back to new chat
+    const urlId = getChatIdFromUrl();
+    if (!urlId) {
+      currentSessionId = null;
+    }
     // Promptly run scraper to capture new screen state
     clearTimeout(scrapeTimeout);
     scrapeTimeout = setTimeout(scrapeAndSaveChat, 1000);
