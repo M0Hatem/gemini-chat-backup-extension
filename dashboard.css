@@ -154,6 +154,30 @@ body {
 .sidebar-footer {
   padding: var(--space-3) var(--space-4);
   border-top: 1px solid var(--border-soft);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.theme-selector-container {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.theme-icon {
+  font-size: var(--text-base);
+  color: var(--muted);
+}
+
+.select-theme-sidebar {
+  flex: 1;
+  min-height: 34px !important;
+  font-size: var(--text-xs) !important;
+  padding: 0 var(--space-2) !important;
+  border-radius: var(--radius-sm);
+  background-color: var(--surface-warm);
 }
 
 .btn-footer-link {
@@ -713,6 +737,26 @@ body {
 #input-client-id:focus {
   border-color: var(--accent);
   box-shadow: var(--focus-ring);
+}
+
+.select-input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background-color: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
+}
+
+.select-input:focus {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-color: var(--accent);
 }
 
 .help-box {

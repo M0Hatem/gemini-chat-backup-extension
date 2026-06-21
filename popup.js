@@ -80,7 +80,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   // 4. Update Google Drive Sync status message
-  chrome.storage.local.get(["gdrive_client_id", "gdrive_last_sync"], (res) => {
+  chrome.storage.local.get(["gdrive_client_id", "gdrive_last_sync", "theme_preference"], (res) => {
+    // Apply active theme preference
+    const theme = res.theme_preference || "system";
+    if (theme === "system") {
+      document.documentElement.removeAttribute("data-theme");
+    } else {
+      document.documentElement.setAttribute("data-theme", theme);
+    }
+
     if (res.gdrive_client_id) {
       if (res.gdrive_last_sync && res.gdrive_last_sync.time) {
         const relativeTime = getRelativeTime(res.gdrive_last_sync.time);

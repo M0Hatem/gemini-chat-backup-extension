@@ -51,6 +51,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const gdriveLastSyncInfo = document.getElementById("gdrive-last-sync-info");
   const gdriveLastSyncStatusVal = document.getElementById("gdrive-last-sync-status-val");
   const gdriveLastSyncTimeVal = document.getElementById("gdrive-last-sync-time-val");
+  const selectTheme = document.getElementById("select-theme");
 
   const btnExportJson = document.getElementById("btn-export-json");
   const btnImportTrigger = document.getElementById("btn-import-trigger");
@@ -68,9 +69,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     redirectUrlDisplay.textContent = "chrome-extension://<id>";
   }
 
+  // Helper to apply the active theme preference
+  function applyTheme(theme) {
+    if (theme === "system" || !theme) {
+      document.documentElement.removeAttribute("data-theme");
+    } else {
+      document.documentElement.setAttribute("data-theme", theme);
+    }
+  }
+
   // --- 1. Load Settings and Client ID ---
   let currentSyncInfo = null;
-  chrome.storage.local.get(["gdrive_client_id", "gdrive_auto_backup", "gdrive_last_sync"], (res) => {
+  chrome.storage.local.get(["gdrive_client_id", "gdrive_auto_backup", "gdrive_last_sync", "theme_preference"], (res) => {
     if (res.gdrive_client_id) {
       inputClientId.value = res.gdrive_client_id;
       btnSyncGdrive.disabled = false;
@@ -83,6 +93,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       currentSyncInfo = res.gdrive_last_sync;
       updateLastSyncDisplay(currentSyncInfo);
     }
+    const themePref = res.theme_preference || "system";
+    selectTheme.value = themePref;
+    applyTheme(themePref);
+  });
+
+  selectTheme.addEventListener("change", () => {
+    const selected = selectTheme.value;
+    applyTheme(selected);
+    chrome.storage.local.set({ theme_preference: selected });
   });
 
   // Periodically refresh relative time display for last sync
