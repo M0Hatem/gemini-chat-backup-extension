@@ -152,15 +152,43 @@
             </div>
           </div>
 
+          <!-- Enable Background Auto-Backup Switch -->
+          <div class="switch-group">
+            <div class="switch-label-container">
+              <span class="switch-title">Enable Background Auto-Backup</span>
+              <span class="switch-desc">Automatically upload backups to Google Drive in the background while chatting.</span>
+            </div>
+            <label class="switch">
+              <input type="checkbox" id="checkbox-auto-backup">
+              <span class="slider"></span>
+            </label>
+          </div>
+
           <div class="sync-actions">
             <button id="btn-save-client-id" class="btn btn-secondary">Save Client ID</button>
             <button id="btn-sync-gdrive" class="btn btn-accent" disabled>
               <span>Sync with Google Drive</span>
               <span class="btn-icon">🔄</span>
             </button>
+            <button id="btn-import-gdrive" class="btn btn-secondary" disabled>
+              <span>Import from Cloud</span>
+              <span class="btn-icon">☁️</span>
+            </button>
           </div>
           
           <div id="gdrive-status" class="sync-status-msg"></div>
+
+          <!-- Last Sync Detail Display -->
+          <div id="gdrive-last-sync-info" class="sync-time-info hidden">
+            <div class="sync-time-row">
+              <span class="sync-time-label">Last Backup Status:</span>
+              <span id="gdrive-last-sync-status-val" class="sync-time-val">-</span>
+            </div>
+            <div class="sync-time-row">
+              <span class="sync-time-label">Last Sync Attempt:</span>
+              <span id="gdrive-last-sync-time-val" class="sync-time-val">-</span>
+            </div>
+          </div>
         </section>
 
         <!-- Local Data Management Section -->

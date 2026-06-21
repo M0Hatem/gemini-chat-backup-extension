@@ -80,12 +80,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
   // 4. Update Google Drive Sync status message
-  chrome.storage.local.get("gdrive_client_id", (res) => {
+  chrome.storage.local.get(["gdrive_client_id", "gdrive_last_sync"], (res) => {
     if (res.gdrive_client_id) {
-      syncStatusText.innerText = "Cloud Sync Configured";
-      syncStatusText.style.color = "var(--accent-color)";
+      if (res.gdrive_last_sync && res.gdrive_last_sync.time) {
+        const relativeTime = getRelativeTime(res.gdrive_last_sync.time);
+        if (res.gdrive_last_sync.status === "success") {
+          syncStatusText.innerText = `Sync: Synced ${relativeTime}`;
+          syncStatusText.className = "active";
+        } else {
+          syncStatusText.innerText = "Sync: Action required";
+          syncStatusText.className = "error";
+        }
+      } else {
+        syncStatusText.innerText = "Sync Configured";
+        syncStatusText.className = "active";
+      }
     } else {
-      syncStatusText.innerText = "Local Storage Active";
+      syncStatusText.innerText = "Local storage active";
+      syncStatusText.className = "local";
     }
   });
 });

@@ -1,15 +1,16 @@
 /* nexu-io/open-design Brand Style System for Popup */
 :root {
-  --bg-primary: #000000;      /* Pure pitch black */
-  --bg-secondary: #0d0d10;    /* Deep matte black */
-  --bg-card: #0c0c0e;         /* Ultra dark card gray */
-  --bg-hover: #16161a;        /* Gray hover */
-  --text-primary: #fafafa;    /* High-contrast zinc */
-  --text-secondary: #a1a1aa;  /* Zinc-400 */
-  --text-dim: #52525b;        /* Zinc-600 */
-  --accent-color: #0055ff;    /* Electric Blue */
-  --border-color: #1a1a1c;    /* Hairline slate border */
-  --success-color: #34d399;   /* Emerald 400 */
+  --bg-primary: #08090d;      /* Midnight cool black-navy */
+  --bg-secondary: #0b0d14;    /* Slate navy */
+  --bg-card: rgba(255, 255, 255, 0.03); /* Glass card */
+  --bg-hover: rgba(255, 255, 255, 0.07);
+  --text-primary: #f3f4f6;    /* Bright cool white */
+  --text-secondary: #9ca3af;  /* Cool grey text */
+  --text-dim: #6b7280;        /* Dim grey text */
+  --accent-color: #3b82f6;    /* Sleek electric blue */
+  --border-color: rgba(255, 255, 255, 0.08);    /* Border */
+  --success-color: #10b981;   /* Emerald 400 */
+  --danger-color: #ef4444;    /* Soft red */
 }
 
 * {
@@ -209,5 +210,24 @@ body {
   width: 4px;
   height: 4px;
   border-radius: 50%;
+  background-color: var(--success-color);
+}
+
+#sync-status.active {
+  color: var(--accent-color);
+}
+#sync-status.active::before {
+  background-color: var(--accent-color);
+}
+#sync-status.error {
+  color: var(--danger-color);
+}
+#sync-status.error::before {
+  background-color: var(--danger-color);
+}
+#sync-status.local {
+  color: var(--text-dim);
+}
+#sync-status.local::before {
   background-color: var(--success-color);
 }

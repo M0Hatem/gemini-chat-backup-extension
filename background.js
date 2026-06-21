@@ -54,12 +54,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     return true;
   } else if (request.action === "sync_gdrive") {
-    syncWithGoogleDrive(request.clientId, request.localChats)
-      .then(result => {
+    syncWithGoogleDrive(request.clientId, request.localChats, true)
+      .then(async (result) => {
+        const syncStatus = {
+          status: "success",
+          time: Date.now(),
+          error: null
+        };
+        await chrome.storage.local.set({ gdrive_last_sync: syncStatus });
         sendResponse({ success: true, result: result });
       })
-      .catch(err => {
+      .catch(async (err) => {
         console.error("Gdrive sync failed: ", err);
+        const syncStatus = {
+          status: "error",
+          time: Date.now(),
+          error: err.message
+        };
+        await chrome.storage.local.set({ gdrive_last_sync: syncStatus });
+        sendResponse({ success: false, error: err.message });
+      });
+    return true; // Keep channel open
+  } else if (request.action === "import_gdrive") {
+    importFromGoogleDrive(request.clientId, request.localChats)
+      .then(async (result) => {
+        const syncStatus = {
+          status: "success",
+          time: Date.now(),
+          error: null
+        };
+        await chrome.storage.local.set({ gdrive_last_sync: syncStatus });
+        sendResponse({ success: true, result: result });
+      })
+      .catch(async (err) => {
+        console.error("Gdrive import failed: ", err);
+        const syncStatus = {
+          status: "error",
+          time: Date.now(),
+          error: err.message
+        };
+        await chrome.storage.local.set({ gdrive_last_sync: syncStatus });
         sendResponse({ success: false, error: err.message });
       });
     return true; // Keep channel open
@@ -100,8 +134,10 @@ async function fetchImageAsBase64(url) {
   let binary = "";
   const bytes = new Uint8Array(buffer);
   const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const CHUNK_SIZE = 8192; // Use chunks to avoid call stack size exceeded on large images
+  for (let i = 0; i < len; i += CHUNK_SIZE) {
+    const chunk = bytes.subarray(i, i + CHUNK_SIZE);
+    binary += String.fromCharCode.apply(null, chunk);
   }
   
   const base64String = btoa(binary);
@@ -109,7 +145,7 @@ async function fetchImageAsBase64(url) {
 }
 
 // Google Drive Sync API Operations
-async function syncWithGoogleDrive(clientId, localChats) {
+async function syncWithGoogleDrive(clientId, localChats, interactive = true) {
   if (!clientId) {
     throw new Error("Google Client ID is missing. Set it in settings.");
   }
@@ -122,7 +158,7 @@ async function syncWithGoogleDrive(clientId, localChats) {
   const responseUrl = await new Promise((resolve, reject) => {
     chrome.identity.launchWebAuthFlow({
       url: authUrl,
-      interactive: true
+      interactive: interactive
     }, (redirectUrl) => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
@@ -141,8 +177,45 @@ async function syncWithGoogleDrive(clientId, localChats) {
   }
   const token = matches[1];
   
-  // 1. Search if the backup file exists in Google Drive
-  const searchUrl = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent("name='gemini_chats_backup.json' and trashed=false");
+  // 1. Search or create the folder "Gemini Chat Backups"
+  let folderId = "root";
+  try {
+    const folderSearchUrl = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent("name='Gemini Chat Backups' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+    const folderSearchResponse = await fetch(folderSearchUrl, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (folderSearchResponse.ok) {
+      const folderSearchData = await folderSearchResponse.json();
+      if (folderSearchData.files && folderSearchData.files.length > 0) {
+        folderId = folderSearchData.files[0].id;
+      } else {
+        // Create folder
+        const createFolderUrl = "https://www.googleapis.com/drive/v3/files";
+        const createFolderResponse = await fetch(createFolderUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            name: "Gemini Chat Backups",
+            mimeType: "application/vnd.google-apps.folder"
+          })
+        });
+        if (createFolderResponse.ok) {
+          const createFolderData = await createFolderResponse.json();
+          folderId = createFolderData.id;
+        } else {
+          console.warn("Failed to create folder, saving to root: ", createFolderResponse.statusText);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Failed folder checking/creation, saving to root: ", err);
+  }
+
+  // 2. Search if the backup file exists in the folder
+  const searchUrl = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(`name='gemini_chats_backup.json' and '${folderId}' in parents and trashed=false`);
   const searchResponse = await fetch(searchUrl, {
     headers: { "Authorization": `Bearer ${token}` }
   });
@@ -155,7 +228,7 @@ async function syncWithGoogleDrive(clientId, localChats) {
   let mergedChats = [...localChats];
   
   if (file) {
-    // 2. If file exists, download it
+    // 3. If file exists, download it
     const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
     const downloadResponse = await fetch(downloadUrl, {
       headers: { "Authorization": `Bearer ${token}` }
@@ -163,7 +236,18 @@ async function syncWithGoogleDrive(clientId, localChats) {
     
     if (downloadResponse.ok) {
       try {
-        const remoteChats = await downloadResponse.json();
+        const rawData = await downloadResponse.json();
+        let remoteChats = [];
+        if (rawData) {
+          if (Array.isArray(rawData)) {
+            // Old format: raw array
+            remoteChats = rawData;
+          } else if (rawData.chats && Array.isArray(rawData.chats)) {
+            // New format: wrapped version object
+            remoteChats = rawData.chats;
+          }
+        }
+        
         // Merge Logic: Combine local and remote. In case of duplicates, preserve the one with newer updatedAt
         const mergedMap = new Map();
         
@@ -191,7 +275,13 @@ async function syncWithGoogleDrive(clientId, localChats) {
       }
     }
     
-    // 3. Update the existing file in Drive
+    // 4. Update the existing file in Drive (wrapped in versioned object)
+    const backupPayload = {
+      backupVersion: "1.0",
+      updatedAt: Date.now(),
+      chats: mergedChats
+    };
+    
     const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=media`;
     const updateResponse = await fetch(updateUrl, {
       method: "PATCH",
@@ -199,17 +289,24 @@ async function syncWithGoogleDrive(clientId, localChats) {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify(mergedChats)
+      body: JSON.stringify(backupPayload)
     });
     
     if (!updateResponse.ok) {
       throw new Error(`Gdrive update failed: ${updateResponse.statusText}`);
     }
   } else {
-    // 4. If file doesn't exist, create it
+    // 5. If file doesn't exist, create it inside the folder (wrapped in versioned object)
     const metadata = {
       name: "gemini_chats_backup.json",
-      mimeType: "application/json"
+      mimeType: "application/json",
+      parents: [folderId]
+    };
+    
+    const backupPayload = {
+      backupVersion: "1.0",
+      updatedAt: Date.now(),
+      chats: mergedChats
     };
     
     const boundary = "314159265358979323846";
@@ -222,7 +319,7 @@ async function syncWithGoogleDrive(clientId, localChats) {
       JSON.stringify(metadata) +
       delimiter +
       'Content-Type: application/json\r\n\r\n' +
-      JSON.stringify(mergedChats) +
+      JSON.stringify(backupPayload) +
       closeDelimiter;
       
     const createUrl = "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart";
@@ -345,6 +442,14 @@ async function saveChatFromContent(chatRecord, urlId, currentSessionId) {
   // 4. Trigger asynchronous background downloads to encode images to base64 format
   triggerBackgroundPrefetchImages(activeId, messages);
 
+  // 5. Schedule background auto-backup if enabled (Default to true if undefined)
+  chrome.storage.local.get(["gdrive_client_id", "gdrive_auto_backup"], (res) => {
+    if (res.gdrive_client_id && res.gdrive_auto_backup !== false) {
+      console.log("Scheduling background auto-backup alarm in 1 minute...");
+      chrome.alarms.create("gdrive_auto_backup", { delayInMinutes: 1.0 });
+    }
+  });
+
   return { currentSessionId: newSessionId };
 }
 
@@ -378,5 +483,210 @@ function triggerBackgroundPrefetchImages(chatId, messages) {
       });
     }
   });
+}
+
+// Alarm listener for background auto-backup
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "gdrive_auto_backup") {
+    console.log("Auto-backup alarm fired!");
+    chrome.storage.local.get(["gdrive_client_id", "gdrive_auto_backup"], async (res) => {
+      if (res.gdrive_client_id && res.gdrive_auto_backup !== false) {
+        try {
+          if (!db) {
+            console.error("Auto-backup failed: Database not initialized");
+            return;
+          }
+          const localChats = await db.chats.toArray();
+          console.log(`Running background auto-backup for ${localChats.length} chats...`);
+          
+          // Call sync with interactive = false
+          const mergedChats = await syncWithGoogleDrive(res.gdrive_client_id, localChats, false);
+          
+          // Clear and replace local database with unified merged results
+          await db.chats.clear();
+          for (const chat of mergedChats) {
+            await db.chats.put(chat);
+          }
+          
+          // Update storage with sync success status
+          const syncStatus = {
+            status: "success",
+            time: Date.now(),
+            error: null
+          };
+          await chrome.storage.local.set({ gdrive_last_sync: syncStatus });
+          console.log("Auto-backup completed successfully!");
+          
+          // Notify any open dashboard components to refresh
+          chrome.runtime.sendMessage({ action: "db_updated", source: "auto_backup" }).catch(() => {
+            // Ignore error if no listener is open
+          });
+        } catch (err) {
+          console.error("Auto-backup execution failed: ", err);
+          const syncStatus = {
+            status: "error",
+            time: Date.now(),
+            error: err.message
+          };
+          await chrome.storage.local.set({ gdrive_last_sync: syncStatus });
+          chrome.runtime.sendMessage({ action: "db_updated", source: "auto_backup" }).catch(() => {});
+        }
+      }
+    });
+  }
+});
+
+// Optimized Import from Google Drive
+async function importFromGoogleDrive(clientId, localChats) {
+  if (!clientId) {
+    throw new Error("Google Client ID is missing. Set it in settings.");
+  }
+  
+  const redirectUri = chrome.identity.getRedirectURL();
+  const scope = "https://www.googleapis.com/auth/drive.file";
+  const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scope)}`;
+  
+  // Run OAuth flow
+  const responseUrl = await new Promise((resolve, reject) => {
+    chrome.identity.launchWebAuthFlow({
+      url: authUrl,
+      interactive: true // User-triggered action, so interactive is true
+    }, (redirectUrl) => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+      } else if (!redirectUrl) {
+        reject(new Error("OAuth flow completed with no redirect URL."));
+      } else {
+        resolve(redirectUrl);
+      }
+    });
+  });
+  
+  // Extract token from redirected URL hash parameters
+  const matches = responseUrl.match(/access_token=([^&]+)/);
+  if (!matches) {
+    throw new Error("Access token could not be parsed from authorization redirect URL.");
+  }
+  const token = matches[1];
+  
+  // 1. Search or create the folder "Gemini Chat Backups"
+  let folderId = "root";
+  try {
+    const folderSearchUrl = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent("name='Gemini Chat Backups' and mimeType='application/vnd.google-apps.folder' and trashed=false");
+    const folderSearchResponse = await fetch(folderSearchUrl, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (folderSearchResponse.ok) {
+      const folderSearchData = await folderSearchResponse.json();
+      if (folderSearchData.files && folderSearchData.files.length > 0) {
+        folderId = folderSearchData.files[0].id;
+      } else {
+        // Create folder
+        const createFolderUrl = "https://www.googleapis.com/drive/v3/files";
+        const createFolderResponse = await fetch(createFolderUrl, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            name: "Gemini Chat Backups",
+            mimeType: "application/vnd.google-apps.folder"
+          })
+        });
+        if (createFolderResponse.ok) {
+          const createFolderData = await createFolderResponse.json();
+          folderId = createFolderData.id;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("Failed folder checking: ", err);
+  }
+
+  // 2. Search if the backup file exists in the folder
+  const searchUrl = "https://www.googleapis.com/drive/v3/files?q=" + encodeURIComponent(`name='gemini_chats_backup.json' and '${folderId}' in parents and trashed=false`);
+  const searchResponse = await fetch(searchUrl, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+  if (!searchResponse.ok) {
+    throw new Error(`Gdrive search failed: ${searchResponse.statusText}`);
+  }
+  const searchData = await searchResponse.json();
+  const file = searchData.files && searchData.files[0];
+  
+  if (!file) {
+    throw new Error("No backup file found in Google Drive. Sync first to create a backup.");
+  }
+  
+  // 3. Download the file
+  const downloadUrl = `https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`;
+  const downloadResponse = await fetch(downloadUrl, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+  
+  if (!downloadResponse.ok) {
+    throw new Error(`Gdrive backup download failed: ${downloadResponse.statusText}`);
+  }
+  
+  let remoteChats = [];
+  try {
+    const rawData = await downloadResponse.json();
+    if (rawData) {
+      if (Array.isArray(rawData)) {
+        remoteChats = rawData;
+      } else if (rawData.chats && Array.isArray(rawData.chats)) {
+        remoteChats = rawData.chats;
+      }
+    }
+  } catch (e) {
+    throw new Error("Failed to parse Google Drive backup JSON.");
+  }
+  
+  // OPTIMIZATION: If local is empty, skip merging and write remote chats directly without re-uploading
+  if (!localChats || localChats.length === 0) {
+    console.log("Local database is blank. Skip upload-back to Google Drive.");
+    return remoteChats;
+  }
+  
+  // If local has data, merge and upload the merged record back to Google Drive
+  const mergedMap = new Map();
+  localChats.forEach(c => mergedMap.set(c.id, c));
+  
+  remoteChats.forEach(rc => {
+    if (mergedMap.has(rc.id)) {
+      const lc = mergedMap.get(rc.id);
+      if ((rc.updatedAt || 0) > (lc.updatedAt || 0)) {
+        mergedMap.set(rc.id, rc);
+      }
+    } else {
+      mergedMap.set(rc.id, rc);
+    }
+  });
+  
+  const mergedChats = Array.from(mergedMap.values());
+  
+  // Upload merged versioned schema back to Google Drive
+  const backupPayload = {
+    backupVersion: "1.0",
+    updatedAt: Date.now(),
+    chats: mergedChats
+  };
+  
+  const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${file.id}?uploadType=media`;
+  const updateResponse = await fetch(updateUrl, {
+    method: "PATCH",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(backupPayload)
+  });
+  
+  if (!updateResponse.ok) {
+    throw new Error(`Gdrive update failed during import merge: ${updateResponse.statusText}`);
+  }
+  
+  return mergedChats;
 }
 
