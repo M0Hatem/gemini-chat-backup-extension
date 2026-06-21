@@ -34,11 +34,11 @@ Your data is stored locally in your browser and syncs directly to your Google Dr
 
 Since this is an unpacked extension, you can load it directly into Google Chrome:
 
-1. Clone or download this repository.
-2. Open Chrome and go to `chrome://extensions/`.
-3. Turn on "Developer mode" in the top-right corner.
-4. Click "Load unpacked" in the top-left corner.
-5. Select the folder containing `manifest.json`.
+1. Download the latest `gemini-chat-saver.zip` from the Releases section of this repository and extract it (or clone this repository).
+2. Open Chrome and navigate to `chrome://extensions/`.
+3. Turn on developer mode using the switch in the top-right corner.
+4. Click the "Load unpacked" button in the top-left corner.
+5. Select the extracted folder containing the `manifest.json` file.
 
 ## Google Cloud Console setup
 

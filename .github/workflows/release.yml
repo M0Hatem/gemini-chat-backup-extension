@@ -1,0 +1,29 @@
+name: Package and Release Extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create Release Package
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout codebase
+        uses: actions/checkout@v4
+
+      - name: Package extension files into zip
+        run: |
+          zip -r gemini-chat-saver.zip manifest.json background.js content.js popup.html popup.css popup.js dashboard.html dashboard.css dashboard.js tokens.css lib/ icon16.png icon48.png icon128.png README.md
+
+      - name: Create GitHub release and upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: gemini-chat-saver.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
