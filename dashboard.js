@@ -45,7 +45,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   const redirectUrlDisplay = document.getElementById("redirect-url-display");
   const btnSaveClientId = document.getElementById("btn-save-client-id");
   const btnSyncGdrive = document.getElementById("btn-sync-gdrive");
-  const btnImportGdrive = document.getElementById("btn-import-gdrive");
   const gdriveStatus = document.getElementById("gdrive-status");
   
   const checkboxAutoBackup = document.getElementById("checkbox-auto-backup");
@@ -75,7 +74,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (res.gdrive_client_id) {
       inputClientId.value = res.gdrive_client_id;
       btnSyncGdrive.disabled = false;
-      btnImportGdrive.disabled = false;
     }
     // Default background auto-backup to true if undefined
     if (res.gdrive_auto_backup !== false) {
@@ -438,15 +436,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   modalOverlay.addEventListener("click", closeModal);
 
   // --- 7. Google Drive Client ID and Sync Operations ---
-  // Enable sync buttons dynamically and auto-save as the user types/pastes their Client ID
+  // Enable sync button dynamically and auto-save as the user types/pastes their Client ID
   inputClientId.addEventListener("input", () => {
     const val = inputClientId.value.trim();
     btnSyncGdrive.disabled = !val;
-    btnImportGdrive.disabled = !val;
     if (val) {
       chrome.storage.local.set({ gdrive_client_id: val });
     } else {
-      chrome.storage.local.remove("gdrive_client_id");
+      chrome.storage.local.remove(["gdrive_client_id", "gdrive_access_token", "gdrive_token_expires_at"]);
     }
   });
 
@@ -479,13 +476,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (val) {
       chrome.storage.local.set({ gdrive_client_id: val }, () => {
         btnSyncGdrive.disabled = false;
-        btnImportGdrive.disabled = false;
         showStatus(gdriveStatus, "success", "Google Client ID saved successfully!");
       });
     } else {
-      chrome.storage.local.remove("gdrive_client_id", () => {
+      chrome.storage.local.remove(["gdrive_client_id", "gdrive_access_token", "gdrive_token_expires_at"], () => {
         btnSyncGdrive.disabled = true;
-        btnImportGdrive.disabled = true;
         showStatus(gdriveStatus, "error", "Client ID cleared. Cloud sync disabled.");
       });
     }
@@ -551,64 +546,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  btnImportGdrive.addEventListener("click", async () => {
-    const clientId = inputClientId.value.trim();
-    if (!clientId) {
-      alert("Please enter a Google Client ID first in the settings input box.");
-      return;
-    }
 
-    gdriveStatus.className = "sync-status-msg";
-    gdriveStatus.textContent = "";
-    
-    // Launch loading state
-    loadingOverlay.classList.remove("hidden");
-    loadingText.textContent = "Importing database from Google Drive...";
-
-    try {
-      const localChats = await db.chats.toArray();
-      
-      // Dispatch background import task
-      chrome.runtime.sendMessage({
-        action: "import_gdrive",
-        clientId: clientId,
-        localChats: localChats
-      }, async (response) => {
-        loadingOverlay.classList.add("hidden");
-        
-        if (response && response.success) {
-          const mergedChats = response.result;
-          
-          // Clear local database and write back unified imported record list
-          await db.chats.clear();
-          for (const chat of mergedChats) {
-            await db.chats.put(chat);
-          }
-          
-          showStatus(gdriveStatus, "success", "Database successfully imported from Google Drive!");
-          alert("Import successful!");
-          
-          // Refresh app view layouts
-          await refreshSidebar(searchInput.value);
-          await updateWelcomeStats();
-          if (activeChatId) {
-            await loadChatIntoView(activeChatId);
-          }
-        } else {
-          let errMsg = response ? response.error : "Unknown import error.";
-          if (errMsg.includes("undefined") && (errMsg.includes("launchWebAuthFlow") || errMsg.includes("identity"))) {
-            errMsg = "Chrome Identity API is not available in this window. Google Account import is disabled in Incognito/Guest mode or if your Chrome profile policies block it.";
-          }
-          showStatus(gdriveStatus, "error", `Import failed: ${errMsg}`);
-          alert(`Import failed: ${errMsg}`);
-        }
-      });
-    } catch (err) {
-      loadingOverlay.classList.add("hidden");
-      showStatus(gdriveStatus, "error", `Import failed: ${err.message}`);
-      alert(`Import failed error: ${err.message}`);
-    }
-  });
 
   // --- 8. Local Backup JSON File Export & Import Operations ---
   btnExportJson.addEventListener("click", async () => {
