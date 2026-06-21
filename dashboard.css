@@ -889,3 +889,26 @@ input:checked + .slider:before {
   font-weight: 500;
 }
 
+/* Search Highlights and Snippets */
+.chat-item-snippet {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 3px;
+  margin-bottom: 6px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+mark.search-highlight {
+  background-color: rgba(59, 130, 246, 0.35); /* Soft electric blue glow */
+  color: #ffffff;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+

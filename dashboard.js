@@ -128,10 +128,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   async function refreshSidebar(query = "") {
     try {
       let chats = [];
-      if (!query.trim()) {
+      const lowerQuery = query.toLowerCase().trim();
+      if (!lowerQuery) {
         chats = await db.chats.orderBy("updatedAt").reverse().toArray();
       } else {
-        const lowerQuery = query.toLowerCase().trim();
         chats = await db.chats.filter(c => {
           const matchTitle = c.title.toLowerCase().includes(lowerQuery);
           const matchMsg = c.messages && c.messages.some(m => m.text.toLowerCase().includes(lowerQuery));
@@ -157,8 +157,20 @@ document.addEventListener("DOMContentLoaded", async () => {
         const relativeTime = getRelativeTime(chat.updatedAt);
         const msgCount = chat.messages ? chat.messages.length : 0;
         
+        let snippetHTML = "";
+        if (lowerQuery) {
+          const matchMsg = chat.messages ? chat.messages.find(m => m.text.toLowerCase().includes(lowerQuery)) : null;
+          if (matchMsg) {
+            const snippet = createSearchSnippet(matchMsg.text, query);
+            if (snippet) {
+              snippetHTML = `<div class="chat-item-snippet">${snippet}</div>`;
+            }
+          }
+        }
+        
         item.innerHTML = `
           <div class="chat-item-title">${escapeHTML(chat.title)}</div>
+          ${snippetHTML}
           <div class="chat-item-meta">
             <span>${msgCount} ${msgCount === 1 ? 'msg' : 'msgs'}</span>
             <span>${relativeTime}</span>
@@ -175,6 +187,31 @@ document.addEventListener("DOMContentLoaded", async () => {
       console.error("Sidebar refresh failed:", err);
       chatList.innerHTML = `<div class="empty-sidebar">Error loading database.</div>`;
     }
+  }
+
+  function createSearchSnippet(text, query) {
+    if (!text || !query) return "";
+    const lowerText = text.toLowerCase();
+    const lowerQuery = query.toLowerCase();
+    const index = lowerText.indexOf(lowerQuery);
+    if (index === -1) return "";
+
+    // Set boundary window surrounding matched word
+    const start = Math.max(0, index - 40);
+    const end = Math.min(text.length, index + query.length + 50);
+    
+    let snippet = text.substring(start, end);
+    if (start > 0) snippet = "..." + snippet;
+    if (end < text.length) snippet = snippet + "...";
+
+    // Escape HTML and highlight matching query
+    const escapedSnippet = escapeHTML(snippet);
+    const regex = new RegExp(`(${escapeRegExp(query)})`, "gi");
+    return escapedSnippet.replace(regex, "<mark class='search-highlight'>$1</mark>");
+  }
+
+  function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   async function updateWelcomeStats() {
