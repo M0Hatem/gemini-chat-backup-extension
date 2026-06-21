@@ -278,11 +278,14 @@ async function scrapeAndSaveChat() {
     messages: messages
   };
   
+  const activeEmail = detectActiveGoogleEmail();
+  
   chrome.runtime.sendMessage({
     action: "save_chat",
     chat: chatRecord,
     urlId: urlId,
-    currentSessionId: currentSessionId
+    currentSessionId: currentSessionId,
+    activeEmail: activeEmail
   }, (response) => {
     if (chrome.runtime.lastError) {
       console.error("Failed to send save_chat message:", chrome.runtime.lastError);
@@ -317,6 +320,43 @@ function extractTurnImages(element) {
   });
   
   return urls;
+}
+
+// Scrapes the active Google account's email address from the DOM
+function detectActiveGoogleEmail() {
+  // 1. Try Google Account button/link (SignOutOptions)
+  const profileLink = document.querySelector('a[href*="SignOutOptions"]');
+  if (profileLink) {
+    const label = profileLink.getAttribute('aria-label') || '';
+    const match = label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    if (match) return match[1].toLowerCase();
+  }
+
+  // 2. Try selectors for profile buttons with standard Google aria-labels
+  const profileButtons = Array.from(document.querySelectorAll('[aria-label*="Google Account"], [aria-label*="Google-Konto"], [aria-label*="Compte Google"]'));
+  for (const btn of profileButtons) {
+    const label = btn.getAttribute('aria-label') || '';
+    const match = label.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    if (match) return match[1].toLowerCase();
+  }
+
+  // 3. Try profile images with alt attributes containing an email pattern
+  const profileImages = Array.from(document.querySelectorAll('img[alt*="@"]'));
+  for (const img of profileImages) {
+    const alt = img.getAttribute('alt') || '';
+    const match = alt.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    if (match) return match[1].toLowerCase();
+  }
+
+  // 4. Fallback search for any elements with aria-label or title containing an email address
+  const allLabels = Array.from(document.querySelectorAll('[aria-label*="@"], [title*="@"]'));
+  for (const el of allLabels) {
+    const text = el.getAttribute('aria-label') || el.getAttribute('title') || '';
+    const match = text.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
+    if (match) return match[1].toLowerCase();
+  }
+
+  return null;
 }
 
 // Initialize Observer on window load

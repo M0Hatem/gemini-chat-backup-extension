@@ -52,6 +52,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const gdriveLastSyncStatusVal = document.getElementById("gdrive-last-sync-status-val");
   const gdriveLastSyncTimeVal = document.getElementById("gdrive-last-sync-time-val");
   const selectTheme = document.getElementById("select-theme");
+  const accountFilterList = document.getElementById("account-filter-list");
 
   const btnExportJson = document.getElementById("btn-export-json");
   const btnImportTrigger = document.getElementById("btn-import-trigger");
@@ -287,7 +288,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       // Populate text info
       activeChatTitle.textContent = chat.title;
-      activeChatMeta.textContent = `Last updated: ${new Date(chat.updatedAt).toLocaleString()}`;
+      let metaText = `Last updated: ${new Date(chat.updatedAt).toLocaleString()}`;
+      if (chat.accountEmail) {
+        metaText += ` • Account: ${chat.accountEmail}`;
+      }
+      activeChatMeta.textContent = metaText;
       
       // Render messages list
       messagesContainer.innerHTML = "";
@@ -482,6 +487,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     gdriveStatus.textContent = "";
     localStatus.className = "sync-status-msg";
     localStatus.textContent = "";
+    loadAccountFilterSettings();
   });
 
   function closeModal() {
@@ -603,6 +609,64 @@ document.addEventListener("DOMContentLoaded", async () => {
   });
 
 
+
+  // --- 7b. Account Filtering Configuration ---
+  async function loadAccountFilterSettings() {
+    chrome.storage.local.get(["detected_accounts", "allowed_accounts"], (res) => {
+      const detected = res.detected_accounts || [];
+      const allowed = res.allowed_accounts || [];
+
+      accountFilterList.innerHTML = "";
+
+      if (detected.length === 0) {
+        accountFilterList.innerHTML = `
+          <div class="empty-state" style="font-size: 13px; color: var(--text-muted); padding: 8px 0;">
+            No accounts detected yet. Open Gemini and start chatting to register your accounts here.
+          </div>
+        `;
+        return;
+      }
+
+      // Sort alphabetically
+      detected.sort();
+
+      detected.forEach(email => {
+        const item = document.createElement("div");
+        item.className = "account-filter-item";
+
+        const isChecked = allowed.includes(email);
+
+        item.innerHTML = `
+          <input type="checkbox" id="chk-acc-${email}" class="account-filter-checkbox" ${isChecked ? "checked" : ""}>
+          <label for="chk-acc-${email}" class="account-filter-label">
+            <span>${escapeHTML(email)}</span>
+          </label>
+        `;
+
+        const checkbox = item.querySelector("input");
+        checkbox.addEventListener("change", () => {
+          updateAllowedAccounts();
+        });
+
+        accountFilterList.appendChild(item);
+      });
+    });
+  }
+
+  function updateAllowedAccounts() {
+    const checkboxes = accountFilterList.querySelectorAll(".account-filter-checkbox");
+    const allowed = [];
+    checkboxes.forEach(cb => {
+      if (cb.checked) {
+        const email = cb.id.replace("chk-acc-", "");
+        allowed.push(email);
+      }
+    });
+
+    chrome.storage.local.set({ allowed_accounts: allowed }, () => {
+      console.log("Allowed accounts updated:", allowed);
+    });
+  }
 
   // --- 8. Local Backup JSON File Export & Import Operations ---
   btnExportJson.addEventListener("click", async () => {

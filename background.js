@@ -24,12 +24,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     openDashboard(request.chatId);
     sendResponse({ status: "success" });
   } else if (request.action === "save_chat") {
-    saveChatFromContent(request.chat, request.urlId, request.currentSessionId)
-      .then((result) => {
-        sendResponse({ status: "success", currentSessionId: result.currentSessionId });
+    checkAccountAllowed(request.activeEmail)
+      .then((allowed) => {
+        if (!allowed) {
+          console.log(`Skipping save: account ${request.activeEmail} is not allowed to be backed up.`);
+          sendResponse({ status: "skipped", reason: "Account not in allowed list" });
+          return;
+        }
+
+        saveChatFromContent(request.chat, request.urlId, request.currentSessionId, request.activeEmail)
+          .then((result) => {
+            sendResponse({ status: "success", currentSessionId: result.currentSessionId });
+          })
+          .catch((err) => {
+            console.error("Failed to save chat in background:", err);
+            sendResponse({ status: "error", error: err.message });
+          });
       })
       .catch((err) => {
-        console.error("Failed to save chat in background:", err);
+        console.error("Account filter check failed:", err);
         sendResponse({ status: "error", error: err.message });
       });
     return true; // Keep channel open
@@ -312,7 +325,7 @@ async function syncWithGoogleDrive(clientId, localChats, interactive = true) {
 }
 
 // Handles saving a scraped chat record from a content script
-async function saveChatFromContent(chatRecord, urlId, currentSessionId) {
+async function saveChatFromContent(chatRecord, urlId, currentSessionId, activeEmail) {
   if (!db) {
     throw new Error("Database not initialized");
   }
@@ -406,6 +419,12 @@ async function saveChatFromContent(chatRecord, urlId, currentSessionId) {
     messages: messages,
     updatedAt: Date.now()
   };
+
+  if (activeEmail) {
+    newRecord.accountEmail = activeEmail.toLowerCase().trim();
+  } else if (existingRecord && existingRecord.accountEmail) {
+    newRecord.accountEmail = existingRecord.accountEmail;
+  }
 
   await db.chats.put(newRecord);
   console.log(`Saved chat "${chatRecord.title}" with ${messages.length} messages. ID: ${activeId}`);
@@ -595,4 +614,54 @@ async function saveAndReturnToken(responseUrl) {
   console.log(`Successfully obtained and cached Google token. Expires in ${expiresInSeconds}s.`);
   return token;
 }
+
+// Verifies if the Google account is allowed to be backed up
+async function checkAccountAllowed(activeEmail) {
+  if (!activeEmail) {
+    // Default to allowing if email cannot be parsed (backward compatibility/DOM updates)
+    return true;
+  }
+
+  const email = activeEmail.toLowerCase().trim();
+
+  // Load configuration from local storage
+  const res = await new Promise((resolve) => {
+    chrome.storage.local.get(["detected_accounts", "allowed_accounts"], resolve);
+  });
+
+  let detected = res.detected_accounts || [];
+  let allowed = res.allowed_accounts;
+
+  let changed = false;
+
+  // Add to detected accounts list if not present
+  if (!detected.includes(email)) {
+    detected.push(email);
+    changed = true;
+  }
+
+  // Initialize allowed accounts if it does not exist
+  if (!allowed) {
+    allowed = [email]; // Enable the first detected account by default
+    changed = true;
+  } else {
+    // Enable newly seen accounts by default
+    if (!detected.includes(email) && !allowed.includes(email)) {
+      allowed.push(email);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await new Promise((resolve) => {
+      chrome.storage.local.set({
+        detected_accounts: detected,
+        allowed_accounts: allowed
+      }, resolve);
+    });
+  }
+
+  return allowed.includes(email);
+}
+
 
