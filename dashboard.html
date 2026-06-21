@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <title>Gemini Chat Archive Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="dashboard.css">
   <!-- Google Fonts: Inter and Outfit -->
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -49,7 +50,7 @@
             <span id="active-chat-meta" class="chat-meta">Last updated 2 hours ago</span>
           </div>
           <div class="chat-actions">
-            <button id="btn-continue" class="btn btn-accent">
+            <button id="btn-continue" class="btn btn-primary">
               <span class="btn-icon">🔁</span>
               <span>Continue Chat</span>
             </button>
@@ -78,14 +79,14 @@
           <span class="welcome-icon">💬</span>
           <h2 class="welcome-title">Welcome to Gemini Archive</h2>
           <p class="welcome-subtitle">All your conversations are automatically backed up here locally.</p>
-          <div class="welcome-stats">
-            <div class="stat-card">
-              <span id="stat-chats-val" class="stat-value">0</span>
-              <span class="stat-label">Saved Chats</span>
+          <div class="metric-grid welcome-stats">
+            <div class="metric">
+              <strong id="stat-chats-val">0</strong>
+              <span>Saved Chats</span>
             </div>
-            <div class="stat-card">
-              <span id="stat-messages-val" class="stat-value">0</span>
-              <span class="stat-label">Messages</span>
+            <div class="metric">
+              <strong id="stat-messages-val">0</strong>
+              <span>Messages</span>
             </div>
           </div>
           <p class="welcome-guide">Select a conversation from the sidebar or search above to get started.</p>
@@ -166,7 +167,7 @@
 
           <div class="sync-actions">
             <button id="btn-save-client-id" class="btn btn-secondary">Save Client ID</button>
-            <button id="btn-sync-gdrive" class="btn btn-accent" disabled>
+            <button id="btn-sync-gdrive" class="btn btn-primary" disabled>
               <span>Sync with Google Drive</span>
               <span class="btn-icon">🔄</span>
             </button>
