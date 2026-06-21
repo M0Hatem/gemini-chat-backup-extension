@@ -1,0 +1,45 @@
+{
+  "manifest_version": 3,
+  "name": "Gemini Chat Saver & Sync",
+  "version": "1.0",
+  "description": "Durable local backup and search for your Google Gemini chats, with offline image support and Google Drive sync.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage",
+    "identity",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://gemini.google.com/*",
+    "https://*.googleusercontent.com/*",
+    "https://www.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://gemini.google.com/*"
+      ],
+      "js": [
+        "lib/dexie.min.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

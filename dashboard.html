@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Gemini Chat Archive Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="dashboard.css">
+  <!-- Google Fonts: Inter and Outfit -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <span class="brand-logo">🔁</span>
+          <h1 class="brand-name">Gemini Archive</h1>
+        </div>
+      </div>
+      
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" placeholder="Search chats or messages...">
+      </div>
+
+      <div class="chat-list-container">
+        <div id="chat-list" class="chat-list">
+          <!-- Populated by JS -->
+          <div class="loading-state">Loading chats...</div>
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <button id="btn-settings-toggle" class="btn-footer-link">
+          <span class="footer-icon">⚙️</span>
+          <span>Sync & Settings</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Active Chat View -->
+      <section id="chat-view" class="chat-view hidden">
+        <header class="chat-header">
+          <div class="chat-header-info">
+            <h2 id="active-chat-title" class="chat-title">Chat Title</h2>
+            <span id="active-chat-meta" class="chat-meta">Last updated 2 hours ago</span>
+          </div>
+          <div class="chat-actions">
+            <button id="btn-continue" class="btn btn-accent">
+              <span class="btn-icon">🔁</span>
+              <span>Continue Chat</span>
+            </button>
+            <button id="btn-export-md" class="btn btn-secondary" title="Export to Markdown file">
+              <span class="btn-icon">📥</span>
+              <span>Export MD</span>
+            </button>
+            <button id="btn-copy-raw" class="btn btn-secondary" title="Copy raw transcript">
+              <span class="btn-icon">📋</span>
+              <span>Copy</span>
+            </button>
+            <button id="btn-delete" class="btn btn-danger" title="Delete chat permanently">
+              <span class="btn-icon">🗑️</span>
+            </button>
+          </div>
+        </header>
+
+        <div id="messages-container" class="messages-container">
+          <!-- Populated by JS -->
+        </div>
+      </section>
+
+      <!-- Welcome / Empty State -->
+      <section id="welcome-view" class="welcome-view">
+        <div class="welcome-container">
+          <span class="welcome-icon">💬</span>
+          <h2 class="welcome-title">Welcome to Gemini Archive</h2>
+          <p class="welcome-subtitle">All your conversations are automatically backed up here locally.</p>
+          <div class="welcome-stats">
+            <div class="stat-card">
+              <span id="stat-chats-val" class="stat-value">0</span>
+              <span class="stat-label">Saved Chats</span>
+            </div>
+            <div class="stat-card">
+              <span id="stat-messages-val" class="stat-value">0</span>
+              <span class="stat-label">Messages</span>
+            </div>
+          </div>
+          <p class="welcome-guide">Select a conversation from the sidebar or search above to get started.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Settings Modal (Glassmorphism Overlay) -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <header class="modal-header">
+        <h3 class="modal-title">Archive Sync & Settings</h3>
+        <button id="btn-settings-close" class="modal-close">&times;</button>
+      </header>
+      <div class="modal-body">
+        <!-- Google Drive Sync Section -->
+        <section class="settings-section">
+          <h4 class="settings-section-title">☁️ Google Drive Backup</h4>
+          <p class="settings-desc">Keep your chats secure in the cloud. Sync copies your backups into a file `gemini_chats_backup.json` inside your personal Google Drive.</p>
+          
+          <div class="form-group">
+            <label for="input-client-id" style="font-weight: 600; margin-bottom: 4px;">OAuth2 Client ID</label>
+            <input type="text" id="input-client-id" placeholder="Enter Google Client ID">
+            <div class="help-box" style="margin-top: 10px; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); padding: 16px; border-radius: 8px; line-height: 1.5;">
+              <strong style="display:block; margin-bottom: 10px; font-size:13px; color: #fff; border-bottom: 1px solid var(--border-color); padding-bottom: 6px;">📋 Step-by-Step Google Cloud Configuration Guide (A to Z)</strong>
+              
+              <div style="font-size: 12px; color: var(--text-muted); display:flex; flex-direction:column; gap:12px;">
+                <div>
+                  <strong style="color: var(--text-main); display:block; margin-bottom:2px;">Step 1: Go to Google Console & Create Project</strong>
+                  1. Open the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color: var(--accent-color); text-decoration:none; font-weight:500;">Google Cloud Console Credentials Page</a>.<br>
+                  2. If you don't have a project, click the project dropdown in the top bar (next to 'Google Cloud'), click <strong>New Project</strong>, name it "Gemini Archive", and click <strong>Create</strong>. Select the project once created.
+                </div>
+
+                <div>
+                  <strong style="color: var(--text-main); display:block; margin-bottom:2px;">Step 2: Setup Consent Screen (One-time only)</strong>
+                  1. Click <strong>OAuth consent screen</strong> in the left sidebar.<br>
+                  2. Choose <strong>External</strong> as User Type and click <strong>Create</strong>.<br>
+                  3. Enter <strong>App name</strong> (e.g., "Gemini Archive"), choose your email for <strong>User support email</strong>, and type your email at the bottom for <strong>Developer contact information</strong>.<br>
+                  4. Click <strong>Save and Continue</strong> on the App Information page.<br>
+                  5. Click <strong>Save and Continue</strong> on the <i>Scopes</i> page.<br>
+                  6. On the <strong>Test Users / Audience</strong> page, click <strong>+ ADD USERS</strong>, type your Gmail address (e.g., your email), click <strong>Save</strong>, and then click <strong>Save and Continue</strong>.<br>
+                  7. Click <strong>Back to Dashboard</strong>.
+                </div>
+
+                <div>
+                  <strong style="color: var(--text-main); display:block; margin-bottom:2px;">Step 3: Create OAuth Client ID Credentials</strong>
+                  1. Click <strong>Credentials</strong> on the left-hand menu.<br>
+                  2. Click the <strong>+ Create Credentials</strong> button at the top, and select <strong>OAuth client ID</strong>.<br>
+                  3. Set <strong>Application type</strong> to <strong>Web application</strong>.<br>
+                  4. Under <strong>Authorized redirect URIs</strong> at the bottom, click <strong>+ ADD URI</strong> and paste this exact link:
+                  <span id="redirect-url-display" class="code-span" style="display:block; margin-top:6px; font-weight:bold; color: #fff; font-size:11px; padding: 6px 10px; border: 1px dashed rgba(255,255,255,0.15);">loading...</span>
+                  5. Click <strong>Create</strong> at the bottom.
+                </div>
+
+                <div>
+                  <strong style="color: var(--text-main); display:block; margin-bottom:2px;">Step 4: Save & Sync</strong>
+                  1. Copy the <strong>Client ID</strong> shown in the success popup (looks like a long text ending with <code>.apps.googleusercontent.com</code>).<br>
+                  2. Paste it into the input box above.<br>
+                  3. Click <strong>Sync with Google Drive</strong> below. A Google account pop-up window will open. Select your Google account and authorize the application!
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sync-actions">
+            <button id="btn-save-client-id" class="btn btn-secondary">Save Client ID</button>
+            <button id="btn-sync-gdrive" class="btn btn-accent" disabled>
+              <span>Sync with Google Drive</span>
+              <span class="btn-icon">🔄</span>
+            </button>
+          </div>
+          
+          <div id="gdrive-status" class="sync-status-msg"></div>
+        </section>
+
+        <!-- Local Data Management Section -->
+        <section class="settings-section">
+          <h4 class="settings-section-title">📂 Local Database Controls</h4>
+          <p class="settings-desc">Backup and restore database files directly from your computer.</p>
+          <div class="local-actions">
+            <button id="btn-export-json" class="btn btn-secondary">
+              <span>Export Database (JSON)</span>
+            </button>
+            <div class="import-wrapper">
+              <button id="btn-import-trigger" class="btn btn-secondary">
+                <span>Import Database (JSON)</span>
+              </button>
+              <input type="file" id="input-import-json" accept=".json" class="hidden">
+            </div>
+          </div>
+          <div id="local-status" class="sync-status-msg"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading Overlay for Sync Operations -->
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="spinner-container">
+      <div class="spinner"></div>
+      <span id="loading-text">Synchronizing database...</span>
+    </div>
+  </div>
+
+  <!-- Dependency Libraries -->
+  <script src="lib/dexie.min.js"></script>
+  <script src="lib/marked.min.js"></script>
+  <script src="lib/purify.min.js"></script>
+  <!-- Application JS -->
+  <script src="dashboard.js"></script>
+</body>
+</html>
