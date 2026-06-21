@@ -210,7 +210,7 @@ async function scrapeAndSaveChat() {
   } else {
     // If we have an official URL ID, sync currentSessionId immediately if it changed (and doesn't start with temp_)
     if (currentSessionId !== urlId) {
-      if (!currentSessionId || !currentSessionId.startsWith("temp_")) {
+      if (currentSessionId && !currentSessionId.startsWith("temp_")) {
         currentSessionId = urlId;
       }
     }

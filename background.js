@@ -254,7 +254,8 @@ async function saveChatFromContent(chatRecord, urlId, currentSessionId) {
   let isGlitchedUrl = false;
 
   // 1. Check if the URL ID is glitched (meaning the DOM conversation is different from the saved one)
-  if (urlId && chatRecord.messages && chatRecord.messages.length > 0) {
+  // We only run this check if the incoming session ID is NOT already active for this URL ID
+  if (urlId && currentSessionId !== urlId && chatRecord.messages && chatRecord.messages.length > 0) {
     try {
       const existing = await db.chats.get(urlId);
       if (existing && existing.messages && existing.messages.length > 0) {
